@@ -28,31 +28,6 @@ function not_supported() {
   throw new Error("Not supported");
 }
 
-function ensure_arraymode(table) {
-  if (!table.arraymode) {
-    var newuints = [];
-    for (var i in table.uints) {
-      if (table.uints[i] != null) {
-        newuints[i - 1] = table.uints[i];
-      }
-    }
-    table.uints = newuints;
-    table.arraymode = true;
-  }
-}
-function ensure_notarraymode(table) {
-  if (table.arraymode) {
-    var newuints = {};
-    for (var i in table.uints) {
-      if (table.uints[i] != null) {
-        newuints[i - -1] = table.uints[i];
-      }
-    }
-    table.uints = newuints;
-    delete table.arraymode;
-  }
-}
-
 function check_string(s) {
   var type = typeof s;
   if (type == "string") {
@@ -90,7 +65,7 @@ function lua_assertfloat(n) {
   return result;
 }
 function lua_newtable(autoIndexList) {
-  var result = {str: {}, uints: {}, floats: {}, bool: {}, objs: []};
+  var result = {str: {}, uints: [], floats: {}, bool: {}, objs: []};
   for (var i = 1; i < arguments.length - 1; i += 2) {
     var value = arguments[i + 1];
     if (value == null) {
@@ -106,7 +81,7 @@ function lua_newtable(autoIndexList) {
           throw new Error("Table index is NaN");
         }
         if (key > 0 && (key | 0) == key) {
-          result.uints[key] = value;
+          result.uints[key - 1] = value;
         } else {
           result.floats[key] = value;
         }
@@ -141,7 +116,6 @@ function lua_newtable(autoIndexList) {
     }
   }
   if (autoIndexList) {
-    ensure_arraymode(result);
     if (result.uints.length == 0) {
       result.uints = autoIndexList;
     } else {
@@ -158,7 +132,7 @@ function lua_newtable2(str) {
   for (var i in str) {
     str_copy[i] = str[i];
   }
-  return {str: str_copy, uints: {}, floats: {}, bool: {}, objs: {}};
+  return {str: str_copy, uints: [], floats: {}, bool: {}, objs: {}};
 }
 function lua_len(op) {
   if (typeof op == "string") {
@@ -166,13 +140,8 @@ function lua_len(op) {
   } else if (typeof op == "object" && op != null) {
     if (op.length == null) {
       var index = 0;
-      if (op.arraymode) {
-        while (op.uints[index++] != null) {};
-        return op.length = index - 1;
-      } else {
-        while (op.uints[++index] != null) {};
-        return op.length = index - 1;
-      }
+      while (op.uints[index++] != null) {};
+      return op.length = index - 1;
     } else {
       return op.length;
     }
@@ -405,11 +374,7 @@ function lua_rawget(table, key) {
         throw new Error("Table index is NaN");
       }
       if (key > 0 && (key | 0) == key) {
-        if (table.arraymode) {
-          return table.uints[key - 1];
-        } else {
-          return table.uints[key];
-        }
+        return table.uints[key - 1];
       } else {
         return table.floats[key];
       }
@@ -424,7 +389,7 @@ function lua_rawget(table, key) {
           return table.objs[i][1];
         }
       }
-	break;
+    break;
     default:
       throw new Error("Unsupported key for table: " + (typeof key));
   }
@@ -444,11 +409,10 @@ function lua_rawset(table, key, value) {
         throw new Error("Table index is NaN");
       }
       if (key > 0 && (key | 0) == key) {
-        ensure_notarraymode(table);
         if (value == null) {
-          delete table.uints[key];
+          delete table.uints[key - 1];
         } else {
-          table.uints[key] = value;
+          table.uints[key - 1] = value;
         }
       } else {
         if (value == null) {
@@ -578,11 +542,7 @@ function lua_tonumber(e, base) {
 // core lua functions
 function _ipairs_next(table, index) {
   var entry;
-  if (table.arraymode) {
-    entry = table.uints[index];
-  } else {
-    entry = table.uints[index + 1];
-  }
+  entry = table.uints[index];
   if (entry == null) {
     return [null, null];
   }
@@ -646,16 +606,10 @@ var lua_core = {
     for (i in table.str) {
       props.push(i);
     }
-    if (table.arraymode) {
-      var j = table.uints.length;
-      while (j-- > 0) {
-        if (table.uints[j] != null) {
-          props.push(j + 1);
-        }
-      }
-    } else {
-      for (i in table.uints) {
-        props.push(parseFloat(i));
+    var j = table.uints.length;
+    while (j-- > 0) {
+      if (table.uints[j] != null) {
+        props.push(j + 1);
       }
     }
     for (i in table.floats) {
@@ -781,7 +735,6 @@ var lua_core = {
     }
   },
   "unpack": function (list, i, j) {
-    ensure_arraymode(list);
     if (list.length != null) {
       j = list.length;
     } else {
@@ -1500,7 +1453,6 @@ String.prototype["metatable"] = lua_newtable(null, "__index", lua_newtable2(lua_
 // table
 lua_libs["table"] = {
   "concat": function (table, sep, i, j) {
-    ensure_arraymode(table);
     if (sep == null) {
       sep = "";
     }
@@ -1514,35 +1466,48 @@ lua_libs["table"] = {
     }
   },
   "insert": function (table, pos, value) {
-    ensure_arraymode(table);
     if (arguments.length == 2) {
       value = pos;
-      pos = table.uints.length + 1;
+      pos = 1;
+      for (var i = 0; i <= table.uints.length; i++) { // get first unsued index
+        if (table.uints[i] == null) {
+          pos = i + 1;
+          break;
+        }
+      }
     }
-    table.uints.splice(pos - 1, 0, value);
+    pos--;
+    // console.log([pos, table.uints[pos], table.uints.length]);
+    if (table.uints[pos] == null) {
+      table.uints[pos] = value;
+    } else {
+      table.uints.splice(pos, 0, value);
+    }
     if (table.length != null) {
       table.length++;
     }
     return [];
   },
   "maxn": function (table) {
-    if (table.arraymode) {
-      return [table.uints.length];
-    } else {
-      var max = 0;
-      for (var i in table.uints) {
-        var val = parseFloat(i);
-        if (val > max) {
-          max = val;
-        }
+    var max = 0;
+    for (var i in table.uints) {
+      var val = parseFloat(i);
+      if (val > max) {
+        max = val;
       }
-      return [max];
     }
+    return [max];
   },
   "remove": function (table, pos) {
-    ensure_arraymode(table);
     if (pos == null) {
       pos = table.uints.length;
+      // find last consecutive index from 0
+      for (var i = 0; i < table.uints.length; i++) { // get first unsued index
+        if (table.uints[i] == null) {
+          pos = i;
+          break;
+        }
+      }
     } else {
       pos = lua_assertfloat(pos);
     }
@@ -1558,7 +1523,6 @@ lua_libs["table"] = {
     }
   },
   "sort": function (table, comp) {
-    ensure_arraymode(table)
     if (comp) {
       table.uints.sort(function (a, b) {
         return comp(a, b)[0] ? -1 : 1;
