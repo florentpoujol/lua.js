@@ -1468,16 +1468,9 @@ lua_libs["table"] = {
   "insert": function (table, pos, value) {
     if (arguments.length == 2) {
       value = pos;
-      pos = 1;
-      for (var i = 0; i <= table.uints.length; i++) { // get first unsued index
-        if (table.uints[i] == null) {
-          pos = i + 1;
-          break;
-        }
-      }
+      pos = table.uints.length + 1;
     }
     pos--;
-    // console.log([pos, table.uints[pos], table.uints.length]);
     if (table.uints[pos] == null) {
       table.uints[pos] = value;
     } else {
@@ -1501,13 +1494,6 @@ lua_libs["table"] = {
   "remove": function (table, pos) {
     if (pos == null) {
       pos = table.uints.length;
-      // find last consecutive index from 0
-      for (var i = 0; i < table.uints.length; i++) { // get first unsued index
-        if (table.uints[i] == null) {
-          pos = i;
-          break;
-        }
-      }
     } else {
       pos = lua_assertfloat(pos);
     }
